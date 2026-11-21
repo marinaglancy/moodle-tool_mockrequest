@@ -19,45 +19,72 @@
 
     Form to compose a request, submitted by JavaScript only, and the area for the response.
 
+    The placeholder rows are added by JavaScript.
+
     Example context (json):
     {
     }
 }}
+<p>{{#str}}intro, tool_mockrequest{{/str}}</p>
 <form id="tool_mockrequest_form" class="mb-4" novalidate>
-    <div class="mb-3">
-        <label for="tool_mockrequest_url" class="form-label">{{#str}}url, tool_mockrequest{{/str}}</label>
-        <div class="input-group">
-            <span class="input-group-text">{{config.wwwroot}}</span>
-            <input type="text" class="form-control font-monospace" id="tool_mockrequest_url" name="url"
-                placeholder="/lib/ajax/service.php" aria-describedby="tool_mockrequest_url_hint">
-        </div>
-        <div id="tool_mockrequest_url_hint" class="form-text">{{#str}}urlhint, tool_mockrequest{{/str}}</div>
-    </div>
     <div class="row">
-        <div class="col-sm-6 mb-3">
-            <label for="tool_mockrequest_method" class="form-label">{{#str}}method, tool_mockrequest{{/str}}</label>
-            <select class="form-select" id="tool_mockrequest_method" name="method">
-                <option value="POST">POST</option>
-                <option value="GET">GET</option>
-            </select>
+        <div class="col-lg-8">
+            <div class="mb-3">
+                <label for="tool_mockrequest_url" class="form-label">{{#str}}url, tool_mockrequest{{/str}}</label>
+                <div class="input-group">
+                    <span class="input-group-text">{{config.wwwroot}}</span>
+                    <input type="text" class="form-control font-monospace" id="tool_mockrequest_url" name="url"
+                        value="/lib/ajax/service.php?sesskey=&lt;SESSKEY&gt;">
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="tool_mockrequest_method" class="form-label">{{#str}}method, tool_mockrequest{{/str}}</label>
+                <select class="form-select w-auto" id="tool_mockrequest_method" name="method">
+                    <option value="json">POST (JSON)</option>
+                    <option value="post">POST</option>
+                    <option value="get">GET</option>
+                </select>
+            </div>
+            <div class="mb-3" data-region="body">
+                <label for="tool_mockrequest_body" class="form-label">{{#str}}body, tool_mockrequest{{/str}}</label>
+                <textarea class="form-control font-monospace" id="tool_mockrequest_body" name="body" rows="3"
+                    spellcheck="false" aria-describedby="tool_mockrequest_body_note tool_mockrequest_body_hint"></textarea>
+                <div id="tool_mockrequest_body_note" class="small text-danger text-truncate invisible" data-region="bodynote">
+                    {{#str}}invalidjson, tool_mockrequest{{/str}} <span data-region="bodyerror"></span>
+                </div>
+                <div id="tool_mockrequest_body_hint" class="form-text mt-0">
+                    <span data-region="bodyhint" data-method="json">{{#str}}bodyhintjson, tool_mockrequest{{/str}}</span>
+                    <span data-region="bodyhint" data-method="post" class="d-none">{{#str}}bodyhintpost, tool_mockrequest{{/str}}</span>
+                </div>
+            </div>
+            <div class="alert alert-danger d-none" role="alert" data-region="error"></div>
+            <button type="submit" class="btn btn-primary">{{#str}}send, tool_mockrequest{{/str}}</button>
+            <a href="#" role="button" class="ms-3 small" data-action="resetform">{{#str}}resetform, tool_mockrequest{{/str}}</a>
         </div>
-        <div class="col-sm-6 mb-3">
-            <label for="tool_mockrequest_sesskey" class="form-label">{{#str}}sesskey, tool_mockrequest{{/str}}</label>
-            <select class="form-select" id="tool_mockrequest_sesskey" name="sesskey">
-                <option value="url">{{#str}}sesskeyurl, tool_mockrequest{{/str}}</option>
-                <option value="body">{{#str}}sesskeybody, tool_mockrequest{{/str}}</option>
-                <option value="none">{{#str}}sesskeynone, tool_mockrequest{{/str}}</option>
-            </select>
+        <div class="col-lg-4 mt-3 mt-lg-0" role="group" aria-labelledby="tool_mockrequest_placeholders_label">
+            <div id="tool_mockrequest_placeholders_label" class="form-label">{{#str}}placeholders, tool_mockrequest{{/str}}</div>
+            <div class="form-text mt-0 mb-2">{{#str}}placeholdershint, tool_mockrequest{{/str}}</div>
+            <div data-region="placeholders"></div>
+            <template data-region="placeholdertemplate">
+                <div class="input-group mb-2" data-region="placeholder">
+                    <input type="text" class="form-control font-monospace" data-field="name" placeholder="&lt;NAME&gt;"
+                        aria-label="{{#str}}placeholdername, tool_mockrequest{{/str}}">
+                    <input type="text" class="form-control font-monospace" data-field="value"
+                        aria-label="{{#str}}placeholdervalue, tool_mockrequest{{/str}}">
+                    <button type="button" class="btn btn-outline-secondary" data-action="removeplaceholder"
+                        title="{{#str}}removeplaceholder, tool_mockrequest{{/str}}">
+                        {{#pix}}i/trash, core, {{#str}}removeplaceholder, tool_mockrequest{{/str}}{{/pix}}
+                    </button>
+                </div>
+            </template>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="addplaceholder">
+                {{#str}}addplaceholder, tool_mockrequest{{/str}}
+            </button>
+            <div class="form-text mt-2 d-none" data-region="missingplaceholders" aria-live="polite">
+                <span data-region="missingtext"></span> <a href="#" role="button" data-action="addmissing">{{#str}}add{{/str}}</a>
+            </div>
         </div>
     </div>
-    <div class="mb-3" data-region="body">
-        <label for="tool_mockrequest_body" class="form-label">{{#str}}body, tool_mockrequest{{/str}}</label>
-        <textarea class="form-control font-monospace" id="tool_mockrequest_body" name="body" rows="10"
-            spellcheck="false" aria-describedby="tool_mockrequest_body_hint"></textarea>
-        <div id="tool_mockrequest_body_hint" class="form-text">{{#str}}bodyhint, tool_mockrequest{{/str}}</div>
-    </div>
-    <div class="alert alert-danger d-none" role="alert" data-region="error"></div>
-    <button type="submit" class="btn btn-primary">{{#str}}send, tool_mockrequest{{/str}}</button>
 </form>
 <div class="d-none" data-region="tool_mockrequest_result" aria-live="polite">
     <details class="mb-2">

@@ -28,7 +28,8 @@ require(__DIR__ . '/../../../config.php'); // phpcs:ignore moodle.Files.RequireL
 
 $PAGE->set_url(new moodle_url('/admin/tool/mockrequest/index.php'));
 $PAGE->set_context(context_system::instance());
-$PAGE->set_pagelayout('standard');
+$PAGE->set_pagelayout('report');
+$PAGE->set_secondary_navigation(false);
 
 if (empty($CFG->debugdeveloper)) {
     throw new moodle_exception('debuggingrequired', 'tool_mockrequest');
@@ -37,7 +38,7 @@ if (empty($CFG->debugdeveloper)) {
 $title = get_string('pluginname', 'tool_mockrequest');
 $PAGE->set_title($title);
 $PAGE->set_heading($title);
-$PAGE->requires->js_call_amd('tool_mockrequest/form', 'init');
+$PAGE->requires->js_call_amd('tool_mockrequest/form', 'init', [(int)$USER->id]);
 
 echo $OUTPUT->header();
 echo $OUTPUT->render_from_template('tool_mockrequest/form', []);

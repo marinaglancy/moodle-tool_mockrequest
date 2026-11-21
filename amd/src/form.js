@@ -23,14 +23,41 @@
 
 import Config from 'core/config';
 import {getString} from 'core/str';
+import JSON5 from 'tool_mockrequest/local/json5';
 
-const STORAGEKEY = 'tool_mockrequest_form';
-const FIELDS = ['url', 'method', 'sesskey', 'body'];
+const DBNAME = 'tool_mockrequest';
+const DBSTORE = 'form';
+const FIELDS = ['url', 'method', 'body'];
+
+const PLACEHOLDERREGEX = /<[A-Z][A-Z0-9_]*>/g;
+
+const EXAMPLEPLACEHOLDERS = [
+    {name: '<SESSKEY>', auto: 'sesskey'},
+    {name: '<USERID>', auto: 'userid'},
+];
+
+/** @var {Object} currentValues values of the current user that "auto" placeholders take */
+let currentValues = {};
+
+/** @var {String} dbKey key of the saved form values, one entry per site and user */
+let dbKey = '';
 
 const SELECTORS = {
     FORM: '#tool_mockrequest_form',
     BODY: '[data-region="body"]',
+    BODYHINT: '[data-region="bodyhint"]',
+    BODYNOTE: '[data-region="bodynote"]',
+    BODYERROR: '[data-region="bodyerror"]',
     ERROR: '[data-region="error"]',
+    PLACEHOLDERS: '[data-region="placeholders"]',
+    PLACEHOLDER: '[data-region="placeholder"]',
+    PLACEHOLDERTEMPLATE: '[data-region="placeholdertemplate"]',
+    ADDPLACEHOLDER: '[data-action="addplaceholder"]',
+    REMOVEPLACEHOLDER: '[data-action="removeplaceholder"]',
+    MISSING: '[data-region="missingplaceholders"]',
+    MISSINGTEXT: '[data-region="missingtext"]',
+    ADDMISSING: '[data-action="addmissing"]',
+    RESETFORM: '[data-action="resetform"]',
     RESULT: '[data-region="tool_mockrequest_result"]',
     REQUEST: '[data-region="request"]',
     STATUS: '[data-region="status"]',
@@ -38,7 +65,7 @@ const SELECTORS = {
 };
 
 /**
- * Parses the text as JSON.
+ * Parses the response as JSON.
  *
  * @param {String} text
  * @returns {*} parsed value, or undefined if the text is empty or not valid JSON
@@ -55,50 +82,248 @@ const parseJson = (text) => {
 };
 
 /**
- * Restores the form values that were saved in the browser storage.
+ * Parses the request body as JSON5.
+ *
+ * @param {String} text
+ * @returns {Object} {value} with the parsed value (undefined for an empty body), or {error} with the parser message
+ */
+const parseJson5 = (text) => {
+    if (text.trim() === '') {
+        return {value: undefined};
+    }
+    try {
+        return {value: JSON5.parse(text)};
+    } catch (e) {
+        return {error: e.message.replace(/^JSON5: /, '')};
+    }
+};
+
+/**
+ * Returns the placeholders from the form.
+ *
+ * @param {HTMLFormElement} form
+ * @returns {Array} list of {name, value, auto}
+ */
+const getPlaceholders = (form) => [...form.querySelectorAll(SELECTORS.PLACEHOLDER)].map((row) => ({
+    name: row.querySelector('[data-field="name"]').value,
+    value: row.querySelector('[data-field="value"]').value,
+    auto: row.dataset.auto ?? null,
+}));
+
+/**
+ * Replaces every placeholder in the text with its value.
+ *
+ * @param {String} text
+ * @param {Array} placeholders
+ * @returns {String}
+ */
+const substitute = (text, placeholders) => placeholders.reduce(
+    (result, {name, value}) => (name === '' ? result : result.split(name).join(value)),
+    text
+);
+
+/**
+ * Adds a placeholder row.
+ *
+ * A row with "auto" takes the current user's value (see currentValues) until its value is edited.
+ *
+ * @param {HTMLFormElement} form
+ * @param {Object} placeholder
+ * @param {String} [placeholder.name]
+ * @param {String} [placeholder.value]
+ * @param {String|null} [placeholder.auto] key in currentValues
+ * @returns {HTMLElement} the new row
+ */
+const addPlaceholder = (form, {name = '', value = '', auto = null} = {}) => {
+    const row = form.querySelector(SELECTORS.PLACEHOLDERTEMPLATE).content.firstElementChild.cloneNode(true);
+    row.querySelector('[data-field="name"]').value = `${name}`;
+    row.querySelector('[data-field="value"]').value = `${value}`;
+    if (Object.hasOwn(currentValues, auto)) {
+        row.dataset.auto = auto;
+        row.querySelector('[data-field="value"]').value = currentValues[auto];
+    }
+    form.querySelector(SELECTORS.PLACEHOLDERS).append(row);
+    return row;
+};
+
+/**
+ * Wraps an IndexedDB request or transaction in a promise.
+ *
+ * @param {IDBRequest|IDBTransaction} request
+ * @returns {Promise} resolved with the request result
+ */
+const dbPromise = (request) => new Promise((resolve, reject) => {
+    if (request instanceof IDBTransaction) {
+        request.oncomplete = () => resolve();
+    } else {
+        request.onsuccess = () => resolve(request.result);
+    }
+    request.onerror = () => reject(request.error);
+});
+
+/**
+ * Opens the object store where the form values are kept.
+ *
+ * The values are kept in IndexedDB because Moodle clears the local storage on every login.
+ *
+ * @param {String} mode 'readonly' or 'readwrite'
+ * @returns {Promise<IDBObjectStore>}
+ */
+const openStore = async(mode) => {
+    const request = window.indexedDB.open(DBNAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(DBSTORE);
+    const db = await dbPromise(request);
+    return db.transaction(DBSTORE, mode).objectStore(DBSTORE);
+};
+
+/**
+ * Restores the form values and the placeholders that were saved in the browser, or adds the example placeholders.
  *
  * @param {HTMLFormElement} form
  */
-const restoreValues = (form) => {
+const restoreValues = async(form) => {
     let values = null;
     try {
-        values = JSON.parse(window.localStorage.getItem(STORAGEKEY));
+        values = await dbPromise((await openStore('readonly')).get(dbKey));
     } catch (e) {
-        return;
+        // IndexedDB is not available, the form starts with the defaults.
     }
     FIELDS.forEach((name) => {
-        if (typeof values?.[name] === 'string') {
-            form.elements[name].value = values[name];
+        const element = form.elements[name];
+        const value = values?.[name];
+        if (typeof value !== 'string') {
+            return;
         }
+        if (element.tagName === 'SELECT' && ![...element.options].some((option) => option.value === value)) {
+            return;
+        }
+        element.value = value;
     });
+    const placeholders = Array.isArray(values?.placeholders) ? values.placeholders : EXAMPLEPLACEHOLDERS;
+    placeholders.forEach((placeholder) => addPlaceholder(form, placeholder));
 };
 
 /**
- * Saves the form values in the browser storage, so they survive logging in as another user.
+ * Saves the form values and the placeholders of the current user in the browser.
  *
  * @param {HTMLFormElement} form
  */
-const saveValues = (form) => {
+const saveValues = async(form) => {
     const values = Object.fromEntries(FIELDS.map((name) => [name, form.elements[name].value]));
+    values.placeholders = getPlaceholders(form);
     try {
-        window.localStorage.setItem(STORAGEKEY, JSON.stringify(values));
+        const store = await openStore('readwrite');
+        store.put(values, dbKey);
+        await dbPromise(store.transaction);
     } catch (e) {
-        // Storage is not available, the values are simply not remembered.
+        // IndexedDB is not available, the values are simply not remembered.
     }
 };
 
 /**
- * Shows the body field and allows the sesskey in the body only for POST requests.
+ * Forgets the form values and the placeholders that were saved in the browser.
+ */
+const clearValues = async() => {
+    try {
+        const store = await openStore('readwrite');
+        store.delete(dbKey);
+        await dbPromise(store.transaction);
+    } catch (e) {
+        // IndexedDB is not available, nothing was saved.
+    }
+};
+
+/**
+ * Shows the body field for POST requests, with the hint for the selected method.
  *
  * @param {HTMLFormElement} form
  */
 const updateBodyState = (form) => {
-    const isPost = form.elements.method.value === 'POST';
-    form.querySelector(SELECTORS.BODY).classList.toggle('d-none', !isPost);
-    form.elements.sesskey.querySelector('option[value="body"]').disabled = !isPost;
-    if (!isPost && form.elements.sesskey.value === 'body') {
-        form.elements.sesskey.value = 'url';
+    const method = form.elements.method.value;
+    form.querySelector(SELECTORS.BODY).classList.toggle('d-none', method === 'get');
+    form.querySelectorAll(SELECTORS.BODYHINT).forEach((hint) => hint.classList.toggle('d-none', hint.dataset.method !== method));
+};
+
+/**
+ * Shows the note under the body when the method is POST (JSON) and the body is not valid JSON5.
+ *
+ * The note keeps its space when it is hidden, so the content below it does not move.
+ *
+ * @param {HTMLFormElement} form
+ */
+const validateBody = (form) => {
+    let error = null;
+    if (form.elements.method.value === 'json') {
+        error = parseJson5(substitute(form.elements.body.value, getPlaceholders(form))).error ?? null;
     }
+    form.querySelector(SELECTORS.BODYERROR).textContent = error ?? '';
+    form.querySelector(SELECTORS.BODYNOTE).classList.toggle('invisible', error === null);
+};
+
+/** @var {Number} missingSequence number of the latest call to updateMissingPlaceholders() */
+let missingSequence = 0;
+
+/**
+ * Shows a note when the URL or the body uses placeholders that are not defined.
+ *
+ * @param {HTMLFormElement} form
+ */
+const updateMissingPlaceholders = async(form) => {
+    const sequence = ++missingSequence;
+    const defined = new Set(getPlaceholders(form).map(({name}) => name));
+    let text = form.elements.url.value;
+    if (form.elements.method.value !== 'get') {
+        text += '\n' + form.elements.body.value;
+    }
+    const missing = [...new Set(text.match(PLACEHOLDERREGEX) ?? [])].filter((name) => !defined.has(name));
+
+    const region = form.querySelector(SELECTORS.MISSING);
+    region.dataset.missing = JSON.stringify(missing);
+    if (!missing.length) {
+        region.classList.add('d-none');
+        return;
+    }
+    const message = await getString('missingplaceholders', 'tool_mockrequest', missing.join(', '));
+    if (sequence === missingSequence) {
+        region.querySelector(SELECTORS.MISSINGTEXT).textContent = message;
+        region.classList.remove('d-none');
+    }
+};
+
+/**
+ * Adds the placeholders that the note about missing placeholders lists.
+ *
+ * @param {HTMLFormElement} form
+ */
+const addMissingPlaceholders = (form) => {
+    const missing = JSON.parse(form.querySelector(SELECTORS.MISSING).dataset.missing || '[]');
+    const rows = missing.map((name) => addPlaceholder(form, {name}));
+    rows[0]?.querySelector('[data-field="value"]').focus();
+};
+
+/**
+ * Updates the notes about the body and the placeholders after a change in the form.
+ *
+ * @param {HTMLFormElement} form
+ */
+const refresh = (form) => {
+    validateBody(form);
+    updateMissingPlaceholders(form);
+};
+
+/**
+ * Resets the fields and the placeholders to their defaults and forgets the saved values.
+ *
+ * @param {HTMLFormElement} form
+ */
+const resetForm = (form) => {
+    form.reset();
+    form.querySelector(SELECTORS.PLACEHOLDERS).replaceChildren();
+    EXAMPLEPLACEHOLDERS.forEach((placeholder) => addPlaceholder(form, placeholder));
+    showError(form, null);
+    updateBodyState(form);
+    refresh(form);
+    clearValues();
 };
 
 /**
@@ -108,39 +333,25 @@ const updateBodyState = (form) => {
  * @returns {Object} either {url, options} or {error} with the string identifier of the error
  */
 const prepareRequest = (form) => {
-    const path = form.elements.url.value.trim().replace(/#.*$/, '');
+    const placeholders = getPlaceholders(form);
+    const path = substitute(form.elements.url.value.trim(), placeholders).replace(/#.*$/, '');
     if (!path.startsWith('/')) {
         return {error: 'errorurl'};
     }
     const method = form.elements.method.value;
-    const sesskey = form.elements.sesskey.value;
-    const sesskeyParam = 'sesskey=' + encodeURIComponent(Config.sesskey);
-
-    let url = Config.wwwroot + path;
-    if (sesskey === 'url') {
-        url += (path.includes('?') ? '&' : '?') + sesskeyParam;
-    }
-
-    const options = {method, credentials: 'same-origin', headers: {}};
-    if (method === 'POST') {
-        const text = form.elements.body.value;
-        const json = parseJson(text);
-        if (json !== undefined) {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = text;
-            if (sesskey === 'body') {
-                if (json === null || typeof json !== 'object' || Array.isArray(json)) {
-                    return {error: 'errorjsonsesskey'};
-                }
-                options.body = JSON.stringify({...json, sesskey: Config.sesskey});
-            }
-        } else {
-            options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-            options.body = text.trim();
-            if (sesskey === 'body') {
-                options.body += (options.body === '' ? '' : '&') + sesskeyParam;
-            }
+    const url = Config.wwwroot + path;
+    const options = {method: method === 'get' ? 'GET' : 'POST', credentials: 'same-origin', headers: {}};
+    const body = substitute(form.elements.body.value, placeholders);
+    if (method === 'json') {
+        const parsed = parseJson5(body);
+        if (parsed.error !== undefined) {
+            return {error: 'errorjson'};
         }
+        options.headers['Content-Type'] = 'application/json';
+        options.body = parsed.value === undefined ? '' : JSON.stringify(parsed.value);
+    } else if (method === 'post') {
+        options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        options.body = body.trim();
     }
     return {url, options};
 };
@@ -167,11 +378,17 @@ const showError = (form, message) => {
 const showResult = (request, response, text) => {
     const region = document.querySelector(SELECTORS.RESULT);
 
-    let requestText = `${request.options.method} ${request.url}`;
-    if (request.options.body !== undefined) {
-        requestText += `\nContent-Type: ${request.options.headers['Content-Type']}\n\n${request.options.body}`;
+    const requestRegion = region.querySelector(SELECTORS.REQUEST);
+    if (request.options.method === 'GET') {
+        const link = document.createElement('a');
+        link.href = request.url;
+        link.target = '_blank';
+        link.textContent = request.url;
+        requestRegion.replaceChildren('GET ', link);
+    } else {
+        requestRegion.textContent = `${request.options.method} ${request.url}` +
+            `\nContent-Type: ${request.options.headers['Content-Type']}\n\n${request.options.body}`;
     }
-    region.querySelector(SELECTORS.REQUEST).textContent = requestText;
 
     let status = `${response.status} ${response.statusText}`;
     const contentType = response.headers.get('Content-Type');
@@ -217,12 +434,40 @@ const send = async(form) => {
 
 /**
  * Initialises the form.
+ *
+ * @param {Number} userid id of the current user
  */
-export const init = () => {
+export const init = async(userid) => {
+    currentValues = {sesskey: Config.sesskey, userid: `${userid}`};
+    dbKey = `${Config.wwwroot}|${userid}`;
     const form = document.querySelector(SELECTORS.FORM);
-    restoreValues(form);
+    await restoreValues(form);
     updateBodyState(form);
+    refresh(form);
+
     form.elements.method.addEventListener('change', () => updateBodyState(form));
+    form.addEventListener('input', (e) => {
+        if (e.target.matches('[data-field="value"]')) {
+            delete e.target.closest(SELECTORS.PLACEHOLDER).dataset.auto;
+        }
+        refresh(form);
+    });
+    form.addEventListener('change', () => refresh(form));
+    form.addEventListener('click', (e) => {
+        if (e.target.closest(SELECTORS.ADDPLACEHOLDER)) {
+            addPlaceholder(form).querySelector('[data-field="name"]').focus();
+        } else if (e.target.closest(SELECTORS.RESETFORM)) {
+            e.preventDefault();
+            resetForm(form);
+        } else if (e.target.closest(SELECTORS.ADDMISSING)) {
+            e.preventDefault();
+            addMissingPlaceholders(form);
+            refresh(form);
+        } else if (e.target.closest(SELECTORS.REMOVEPLACEHOLDER)) {
+            e.target.closest(SELECTORS.PLACEHOLDER).remove();
+            refresh(form);
+        }
+    });
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         send(form);

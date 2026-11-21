@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<libraries>
+  <library>
+    <location>amd/src/local/json5.js</location>
+    <name>JSON5</name>
+    <description>JSON for humans, used to parse the request body. A copy of dist/index.mjs.</description>
+    <version>2.2.3</version>
+    <license>MIT</license>
+    <repository>https://github.com/json5/json5</repository>
+    <copyrights>
+      <copyright>2012-2018 Aseem Kishore, and others</copyright>
+    </copyrights>
+  </library>
+</libraries>

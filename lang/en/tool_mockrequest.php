@@ -24,20 +24,26 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+$string['addplaceholder'] = 'Add placeholder';
 $string['body'] = 'Request body';
-$string['bodyhint'] = 'A body that is valid JSON is sent as application/json, anything else as application/x-www-form-urlencoded.';
+$string['bodyhintjson'] = 'You can use JSON5 (single quotes, unquoted keys, trailing commas, comments). The body is converted to JSON in the request.';
+$string['bodyhintpost'] = 'The body is sent as it is, as application/x-www-form-urlencoded.';
 $string['debuggingrequired'] = 'This page is only available when developer debugging is enabled.';
-$string['errorjsonsesskey'] = 'The sesskey can only be added to a JSON body that is an object.';
+$string['errorjson'] = 'The request body is not valid JSON5.';
 $string['errorurl'] = 'The URL must start with "/".';
+$string['intro'] = 'Sends requests from the current user\'s session with the specified parameters. Use it for security testing, for example of IDOR (insecure direct object reference) vulnerabilities.';
+$string['invalidjson'] = 'Invalid JSON5:';
 $string['method'] = 'Request method';
+$string['missingplaceholders'] = 'Are you missing {$a}?';
+$string['placeholdername'] = 'Placeholder';
+$string['placeholders'] = 'Placeholders';
+$string['placeholdershint'] = 'Each placeholder is replaced with its value in the URL and in the request body before the request is sent.';
+$string['placeholdervalue'] = 'Value';
 $string['pluginname'] = 'Mock request';
 $string['privacy:metadata'] = 'The Mock request plugin does not store any personal data.';
+$string['removeplaceholder'] = 'Remove placeholder';
 $string['request'] = 'Request';
+$string['resetform'] = 'Reset form';
 $string['response'] = 'Response';
 $string['send'] = 'Send request';
-$string['sesskey'] = 'Add sesskey';
-$string['sesskeybody'] = 'To the request body';
-$string['sesskeynone'] = 'None';
-$string['sesskeyurl'] = 'To the URL';
 $string['url'] = 'Local URL';
-$string['urlhint'] = 'Path relative to the site root, starting with "/". It may contain a query string.';
