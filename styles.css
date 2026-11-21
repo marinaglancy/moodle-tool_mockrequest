@@ -1,0 +1,4 @@
+#page-admin-tool-mockrequest-index [data-region="tool_mockrequest_result"] pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
