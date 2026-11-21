@@ -25,7 +25,9 @@ who are not logged in, but only when developer debugging is enabled. Otherwise i
      a note under the placeholders offers to add it.
 3. Click **Send request**. The page shows the request that was sent (collapsed, with the URL as a
    link for GET requests), the response status, content type and redirect target (if any), and the
-   response body. A JSON response is formatted.
+   response body. A JSON response is formatted with the keys in bold. The key of a string that
+   contains HTML is a link that opens a preview of the HTML, styled by the theme, where scripts
+   do not run.
 
 The request is sent from the browser with `fetch()` and the user's cookies, so it behaves exactly as
 if the user had crafted it. The form values and the placeholders are remembered in the browser's

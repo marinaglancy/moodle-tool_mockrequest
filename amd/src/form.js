@@ -22,6 +22,7 @@
  */
 
 import Config from 'core/config';
+import Modal from 'core/modal';
 import {getString} from 'core/str';
 import JSON5 from 'tool_mockrequest/local/json5';
 
@@ -30,6 +31,11 @@ const DBSTORE = 'form';
 const FIELDS = ['url', 'method', 'body'];
 
 const PLACEHOLDERREGEX = /<[A-Z][A-Z0-9_]*>/g;
+
+const HTMLREGEX = /<\/?[a-z][^>]*>/i;
+
+/** @var {WeakMap} htmlPreviews HTML strings from the response, by the link that previews them */
+const htmlPreviews = new WeakMap();
 
 const EXAMPLEPLACEHOLDERS = [
     {name: '<SESSKEY>', auto: 'sesskey'},
@@ -62,6 +68,7 @@ const SELECTORS = {
     REQUEST: '[data-region="request"]',
     STATUS: '[data-region="status"]',
     OUTPUT: '[data-region="output"]',
+    PREVIEWHTML: '[data-action="previewhtml"]',
 };
 
 /**
@@ -369,6 +376,91 @@ const showError = (form, message) => {
 };
 
 /**
+ * Renders a JSON value indented like JSON.stringify(value, null, 2), with the keys in bold.
+ *
+ * The key of a string that contains HTML tags is a link that opens a preview of the HTML.
+ *
+ * @param {*} value
+ * @param {String} indent indentation of the current line
+ * @param {String} path path to the value, shown in the preview
+ * @returns {DocumentFragment}
+ */
+const renderJson = (value, indent = '', path = '') => {
+    const fragment = document.createDocumentFragment();
+    const isArray = Array.isArray(value);
+    if (value === null || typeof value !== 'object') {
+        fragment.append(JSON.stringify(value));
+        return fragment;
+    }
+    const keys = isArray ? [...value.keys()] : Object.keys(value);
+    const [open, close] = isArray ? ['[', ']'] : ['{', '}'];
+    if (!keys.length) {
+        fragment.append(open + close);
+        return fragment;
+    }
+    fragment.append(open + '\n');
+    keys.forEach((key, index) => {
+        const item = value[key];
+        const itemPath = isArray ? `${path}[${key}]` : (path === '' ? key : `${path}.${key}`);
+        fragment.append(indent + '  ');
+        if (!isArray) {
+            const label = document.createElement('strong');
+            label.textContent = JSON.stringify(key);
+            if (typeof item === 'string' && HTMLREGEX.test(item)) {
+                const link = document.createElement('a');
+                link.href = '#';
+                link.dataset.action = 'previewhtml';
+                link.dataset.path = itemPath;
+                link.append(label);
+                htmlPreviews.set(link, item);
+                fragment.append(link);
+            } else {
+                fragment.append(label);
+            }
+            fragment.append(': ');
+        }
+        fragment.append(renderJson(item, indent + '  ', itemPath));
+        fragment.append(index < keys.length - 1 ? ',\n' : '\n');
+    });
+    fragment.append(indent + close);
+    return fragment;
+};
+
+/**
+ * Shows HTML from the response in a popup, in a sandboxed frame where scripts do not run.
+ *
+ * The frame loads the stylesheets of this page, so the HTML looks as it would on the site. It keeps the site's
+ * origin so that the theme fonts load, which is safe only as long as the sandbox does not allow scripts.
+ *
+ * @param {String} path path to the value in the response
+ * @param {String} html
+ */
+const previewHtml = async(path, html) => {
+    const escape = (text) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const styles = [...document.querySelectorAll('link[rel="stylesheet"]')]
+        .map((link) => `<link rel="stylesheet" href="${escape(link.href)}">`)
+        .join('');
+
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-same-origin');
+    frame.className = 'w-100 border rounded';
+    frame.style.height = '70vh';
+    frame.srcdoc = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}</head>` +
+        `<body class="p-3">${html}</body></html>`;
+    const pathElement = document.createElement('code');
+    pathElement.className = 'd-block mb-2';
+    pathElement.textContent = path;
+
+    const modal = await Modal.create({
+        title: getString('htmlpreview', 'tool_mockrequest'),
+        large: true,
+        removeOnClose: true,
+    });
+    modal.getBody()[0].replaceChildren(pathElement, frame);
+    modal.show();
+};
+
+/**
  * Shows the request that was sent and the response, formatting JSON.
  *
  * @param {Object} request
@@ -401,7 +493,12 @@ const showResult = (request, response, text) => {
     region.querySelector(SELECTORS.STATUS).textContent = status;
 
     const json = parseJson(text);
-    region.querySelector(SELECTORS.OUTPUT).textContent = json === undefined ? text : JSON.stringify(json, null, 2);
+    const output = region.querySelector(SELECTORS.OUTPUT);
+    if (json === undefined) {
+        output.textContent = text;
+    } else {
+        output.replaceChildren(renderJson(json));
+    }
     region.classList.remove('d-none');
 };
 
@@ -471,5 +568,12 @@ export const init = async(userid) => {
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         send(form);
+    });
+    document.querySelector(SELECTORS.RESULT).addEventListener('click', (e) => {
+        const link = e.target.closest(SELECTORS.PREVIEWHTML);
+        if (link) {
+            e.preventDefault();
+            previewHtml(link.dataset.path, htmlPreviews.get(link));
+        }
     });
 };

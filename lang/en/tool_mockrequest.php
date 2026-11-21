@@ -31,6 +31,7 @@ $string['bodyhintpost'] = 'The body is sent as it is, as application/x-www-form-
 $string['debuggingrequired'] = 'This page is only available when developer debugging is enabled.';
 $string['errorjson'] = 'The request body is not valid JSON5.';
 $string['errorurl'] = 'The URL must start with "/".';
+$string['htmlpreview'] = 'HTML preview (scripts do not run)';
 $string['intro'] = 'Sends requests from the current user\'s session with the specified parameters. Use it for security testing, for example of IDOR (insecure direct object reference) vulnerabilities.';
 $string['invalidjson'] = 'Invalid JSON5:';
 $string['method'] = 'Request method';
